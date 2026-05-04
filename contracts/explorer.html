@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>LogStore Explorer — Sepolia</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Segoe UI', system-ui, sans-serif; background: #0f1117; color: #e2e8f0; min-height: 100vh; }
+
+    header { padding: 20px 32px; border-bottom: 1px solid #1e2535; display: flex; align-items: center; gap: 12px; }
+    header h1 { font-size: 18px; font-weight: 600; }
+    .badge { font-size: 11px; background: #1a3a6b; color: #60a5fa; padding: 3px 8px; border-radius: 99px; }
+
+    .tabs { display: flex; gap: 4px; padding: 20px 32px 0; border-bottom: 1px solid #1e2535; }
+    .tab { padding: 10px 20px; cursor: pointer; border-radius: 6px 6px 0 0; font-size: 14px; color: #94a3b8; border: 1px solid transparent; border-bottom: none; }
+    .tab.active { background: #1e2535; color: #e2e8f0; border-color: #1e2535; }
+    .tab:hover:not(.active) { color: #cbd5e1; }
+
+    .panel { display: none; padding: 24px 32px; }
+    .panel.active { display: block; }
+
+    .stats { display: flex; gap: 16px; margin-bottom: 20px; }
+    .stat { background: #1e2535; border-radius: 8px; padding: 14px 20px; }
+    .stat .label { font-size: 11px; color: #64748b; text-transform: uppercase; letter-spacing: .05em; }
+    .stat .value { font-size: 22px; font-weight: 600; margin-top: 4px; }
+
+    .card-list { display: flex; flex-direction: column; gap: 8px; }
+    .card { background: #1e2535; border-radius: 8px; padding: 14px 18px; cursor: pointer; border: 1px solid transparent; transition: border-color .15s; display: flex; align-items: center; gap: 14px; }
+    .card:hover { border-color: #3b82f6; }
+    .card .hash { font-family: monospace; font-size: 13px; color: #60a5fa; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .card .block { font-size: 12px; color: #64748b; }
+    .card .meta { font-size: 12px; color: #94a3b8; white-space: nowrap; }
+
+    .level { font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 4px; }
+    .level-0 { background: #1e3a5f; color: #93c5fd; }
+    .level-1 { background: #14532d; color: #86efac; }
+    .level-2 { background: #713f12; color: #fde68a; }
+    .level-3 { background: #7f1d1d; color: #fca5a5; }
+    .level-4 { background: #4c0519; color: #f9a8d4; }
+
+    .filter-bar { display: flex; gap: 10px; margin-bottom: 20px; }
+    .filter-bar input { flex: 1; background: #1e2535; border: 1px solid #2d3748; border-radius: 6px; padding: 9px 14px; color: #e2e8f0; font-size: 13px; font-family: monospace; outline: none; }
+    .filter-bar input:focus { border-color: #3b82f6; }
+    .filter-bar button { padding: 9px 18px; background: #3b82f6; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; white-space: nowrap; }
+    .filter-bar button:hover { background: #2563eb; }
+    .filter-bar button.secondary { background: #1e2535; color: #94a3b8; border: 1px solid #2d3748; }
+    .filter-bar button.secondary:hover { background: #2d3748; }
+
+    .load-btn { margin-top: 16px; padding: 10px 20px; background: #3b82f6; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; }
+    .load-btn:hover { background: #2563eb; }
+    .load-btn:disabled { background: #1e3a5f; color: #64748b; cursor: not-allowed; }
+
+    /* Modal */
+    .overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.7); z-index: 100; align-items: center; justify-content: center; }
+    .overlay.open { display: flex; }
+    .modal { background: #1e2535; border-radius: 12px; width: 680px; max-width: 95vw; max-height: 85vh; overflow-y: auto; padding: 28px; position: relative; }
+    .modal h2 { font-size: 16px; margin-bottom: 18px; }
+    .modal .close { position: absolute; top: 16px; right: 16px; background: none; border: none; color: #64748b; font-size: 20px; cursor: pointer; line-height: 1; }
+    .modal .close:hover { color: #e2e8f0; }
+    .field { margin-bottom: 14px; }
+    .field .key { font-size: 11px; color: #64748b; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 4px; }
+    .field .val { font-size: 13px; font-family: monospace; word-break: break-all; background: #0f1117; padding: 8px 10px; border-radius: 6px; }
+    .field .val.text { font-family: inherit; }
+    .etherscan-link { display: inline-flex; align-items: center; gap: 6px; margin-top: 14px; color: #60a5fa; font-size: 13px; text-decoration: none; }
+    .etherscan-link:hover { text-decoration: underline; }
+
+    .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid #3b82f6; border-top-color: transparent; border-radius: 50%; animation: spin .6s linear infinite; vertical-align: middle; margin-right: 6px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .empty { color: #64748b; font-size: 14px; padding: 32px 0; text-align: center; }
+    .error-msg { color: #f87171; font-size: 13px; padding: 12px; background: #1f0f0f; border-radius: 6px; margin-bottom: 12px; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>LogStore Explorer</h1>
+  <span class="badge">Sepolia Testnet</span>
+</header>
+
+<div class="tabs">
+  <div class="tab active" onclick="switchTab('log')">LogStore</div>
+  <div class="tab" onclick="switchTab('hash')">HashStore</div>
+  <div class="tab" onclick="switchTab('batch')">BatchStore</div>
+</div>
+
+<div id="panel-log" class="panel active"></div>
+<div id="panel-hash" class="panel"></div>
+<div id="panel-batch" class="panel"></div>
+
+<!-- Modal -->
+<div class="overlay" id="overlay" onclick="closeModal(event)">
+  <div class="modal" id="modal">
+    <button class="close" onclick="closeModal()">✕</button>
+    <div id="modal-content"></div>
+  </div>
+</div>
+
+<script type="module">
+  import { ethers } from 'https://esm.sh/ethers@6.13.4';
+
+  const RPC  = 'https://ethereum-sepolia-rpc.publicnode.com';
+  const SCAN = 'https://sepolia.etherscan.io';
+
+  const CONTRACTS = {
+    log:   { address: '0xdF200BA0329937B3325B5D35FAd21E6ab7339EA1', name: 'LogStore' },
+    hash:  { address: '0x159F7048e7f346dD82417ACf526B8e5197d2Ac58', name: 'HashStore' },
+    batch: { address: '0xc4B3AA62C74E3BAeC05b04F432Def570954d2c60', name: 'BatchStore' },
+  };
+
+  const ABI = {
+    log: [{"anonymous":false,"inputs":[{"indexed":true,"internalType":"bytes32","name":"contentHash","type":"bytes32"},{"indexed":true,"internalType":"address","name":"submitter","type":"address"},{"indexed":false,"internalType":"uint8","name":"level","type":"uint8"},{"indexed":false,"internalType":"bytes32","name":"source","type":"bytes32"}],"name":"LogWritten","type":"event"},{"inputs":[{"internalType":"bytes32","name":"contentHash","type":"bytes32"}],"name":"getRecord","outputs":[{"components":[{"internalType":"uint8","name":"level","type":"uint8"},{"internalType":"bytes32","name":"source","type":"bytes32"},{"internalType":"string","name":"messagePreview","type":"string"},{"internalType":"uint256","name":"historyLen","type":"uint256"},{"internalType":"bytes32","name":"historyHash","type":"bytes32"},{"internalType":"string","name":"message","type":"string"},{"internalType":"string","name":"metadataJson","type":"string"},{"internalType":"uint256","name":"timestamp","type":"uint256"},{"internalType":"uint256","name":"blockNumber","type":"uint256"},{"internalType":"address","name":"submitter","type":"address"}],"internalType":"struct LogStore.LogRecord","name":"","type":"tuple"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"uint256","name":"offset","type":"uint256"},{"internalType":"uint256","name":"limit","type":"uint256"}],"name":"getPage","outputs":[{"internalType":"bytes32[]","name":"page","type":"bytes32[]"}],"stateMutability":"view","type":"function"},{"inputs":[],"name":"logCount","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"}],
+
+    hash: [{"anonymous":false,"inputs":[{"indexed":true,"internalType":"bytes32","name":"contentHash","type":"bytes32"},{"indexed":true,"internalType":"address","name":"submitter","type":"address"},{"indexed":false,"internalType":"uint8","name":"level","type":"uint8"}],"name":"HashWritten","type":"event"},{"inputs":[{"internalType":"bytes32","name":"contentHash","type":"bytes32"}],"name":"getRecord","outputs":[{"components":[{"internalType":"uint8","name":"level","type":"uint8"},{"internalType":"string","name":"messagePreview","type":"string"},{"internalType":"uint256","name":"historyLen","type":"uint256"},{"internalType":"bytes32","name":"historyHash","type":"bytes32"},{"internalType":"uint256","name":"timestamp","type":"uint256"},{"internalType":"uint256","name":"blockNumber","type":"uint256"},{"internalType":"address","name":"submitter","type":"address"}],"internalType":"struct HashStore.HashRecord","name":"","type":"tuple"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"uint256","name":"offset","type":"uint256"},{"internalType":"uint256","name":"limit","type":"uint256"}],"name":"getPage","outputs":[{"internalType":"bytes32[]","name":"page","type":"bytes32[]"}],"stateMutability":"view","type":"function"},{"inputs":[],"name":"recordCount","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"}],
+
+    batch: [{"anonymous":false,"inputs":[{"indexed":true,"internalType":"bytes32","name":"merkleRoot","type":"bytes32"},{"indexed":true,"internalType":"address","name":"submitter","type":"address"},{"indexed":false,"internalType":"uint32","name":"count","type":"uint32"},{"indexed":false,"internalType":"uint8","name":"maxSeverity","type":"uint8"}],"name":"BatchWritten","type":"event"},{"inputs":[],"name":"batchCount","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"bytes32","name":"merkleRoot","type":"bytes32"}],"name":"getRecord","outputs":[{"components":[{"internalType":"uint256","name":"historyLen","type":"uint256"},{"internalType":"bytes32","name":"historyHash","type":"bytes32"},{"internalType":"string","name":"startId","type":"string"},{"internalType":"string","name":"endId","type":"string"},{"internalType":"uint32","name":"count","type":"uint32"},{"internalType":"uint32","name":"debugCount","type":"uint32"},{"internalType":"uint32","name":"infoCount","type":"uint32"},{"internalType":"uint32","name":"warnCount","type":"uint32"},{"internalType":"uint32","name":"errorCount","type":"uint32"},{"internalType":"uint32","name":"criticalCount","type":"uint32"},{"internalType":"uint8","name":"maxSeverity","type":"uint8"},{"internalType":"uint256","name":"timestamp","type":"uint256"},{"internalType":"uint256","name":"blockNumber","type":"uint256"},{"internalType":"address","name":"submitter","type":"address"}],"internalType":"struct BatchStore.BatchRecord","name":"","type":"tuple"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"uint256","name":"offset","type":"uint256"},{"internalType":"uint256","name":"limit","type":"uint256"}],"name":"getPage","outputs":[{"internalType":"bytes32[]","name":"page","type":"bytes32[]"}],"stateMutability":"view","type":"function"}],
+  };
+
+  const LEVELS = ['DEBUG','INFO','WARN','ERROR','CRITICAL'];
+
+  const provider = new ethers.JsonRpcProvider(RPC);
+  const state = { log: { hashes:[], offset:0 }, hash: { hashes:[], offset:0 }, batch: { hashes:[], offset:0 } };
+
+  function contract(type) {
+    return new ethers.Contract(CONTRACTS[type].address, ABI[type], provider);
+  }
+
+  function bytes32ToSource(b32) {
+    try {
+      const hex = b32.replace('0x','').replace(/00+$/, '');
+      return Buffer.from(hex, 'hex').toString('utf8');
+    } catch { return b32; }
+  }
+
+  function fmtHash(h) { return h.slice(0,10) + '…' + h.slice(-8); }
+  function fmtAddr(a) { return a.slice(0,8) + '…' + a.slice(-6); }
+  function fmtTime(ts) { return new Date(Number(ts)*1000).toLocaleString(); }
+
+  function levelBadge(n) {
+    const l = LEVELS[n] || String(n);
+    return `<span class="level level-${n}">${l}</span>`;
+  }
+
+  const MY_WALLET = '0x991BA0bC7a81Fd032284DFE1908eAAC5916112aB';
+
+  // ── render panel ──────────────────────────────────────────────────────────────
+  async function renderPanel(type) {
+    const el = document.getElementById(`panel-${type}`);
+    const c  = contract(type);
+
+    let total = 0;
+    try {
+      const cnt = type === 'log' ? await c.logCount()
+                : type === 'hash' ? await c.recordCount()
+                : await c.batchCount();
+      total = Number(cnt);
+    } catch(e) {}
+
+    el.innerHTML = `
+      <div class="stats">
+        <div class="stat"><div class="label">Total Records</div><div class="value" id="count-${type}">${total}</div></div>
+        <div class="stat"><div class="label">Contract</div><div class="value" style="font-size:13px;font-family:monospace">
+          <a href="${SCAN}/address/${CONTRACTS[type].address}" target="_blank" style="color:#60a5fa;text-decoration:none">${fmtHash(CONTRACTS[type].address)}</a>
+        </div></div>
+      </div>
+      <div class="filter-bar">
+        <input id="filter-${type}" type="text" placeholder="Filter by submitter address (0x…)" value="${MY_WALLET}" />
+        <button onclick="search('${type}')">Search</button>
+        <button class="secondary" onclick="clearFilter('${type}')">All</button>
+      </div>
+      <div id="list-${type}" class="card-list"></div>
+      <div style="margin-top:16px" id="btn-wrap-${type}"></div>
+    `;
+  }
+
+  // ── fetch all records via getPage, filter in memory ──────────────────────────
+  window.search = async function(type) {
+    const input   = document.getElementById(`filter-${type}`).value.trim();
+    const list    = document.getElementById(`list-${type}`);
+    const btnWrap = document.getElementById(`btn-wrap-${type}`);
+    const c       = contract(type);
+
+    const submitter = input ? input.toLowerCase() : null;
+    if (input && !ethers.isAddress(input)) {
+      list.innerHTML = `<div class="error-msg">Invalid address</div>`;
+      return;
+    }
+
+    list.innerHTML = `<div class="empty"><span class="spinner"></span> Loading records…</div>`;
+    btnWrap.innerHTML = '';
+
+    try {
+      // fetch all hashes in pages of 50
+      const allHashes = [];
+      let offset = 0;
+      while (true) {
+        const page = await c.getPage(offset, 50);
+        if (page.length === 0) break;
+        allHashes.push(...page);
+        offset += page.length;
+        if (page.length < 50) break;
+      }
+
+      // fetch all records in parallel batches of 10
+      const allRecords = [];
+      for (let i = 0; i < allHashes.length; i += 10) {
+        const batch = allHashes.slice(i, i + 10);
+        const recs  = await Promise.all(batch.map(h => c.getRecord(h).catch(() => null)));
+        recs.forEach((rec, j) => rec && allRecords.push({ hash: allHashes[i+j], rec }));
+        list.innerHTML = `<div class="empty"><span class="spinner"></span> Loading… ${allRecords.length}/${allHashes.length}</div>`;
+      }
+
+      // filter in memory
+      const filtered = submitter
+        ? allRecords.filter(({ rec }) => rec.submitter.toLowerCase() === submitter)
+        : allRecords;
+
+      list.innerHTML = '';
+
+      if (filtered.length === 0) {
+        list.innerHTML = `<div class="empty">No records found${submitter ? ' for this address' : ''}</div>`;
+        return;
+      }
+
+      document.getElementById(`count-${type}`).textContent =
+        submitter ? `${filtered.length} / ${allRecords.length} (filtered)` : String(filtered.length);
+
+      for (const { hash, rec } of filtered.reverse()) {
+        list.appendChild(makeCard(type, hash, rec));
+      }
+    } catch(e) {
+      list.innerHTML = `<div class="error-msg">${e.message}</div>`;
+    }
+  };
+
+  window.clearFilter = function(type) {
+    document.getElementById(`filter-${type}`).value = '';
+    search(type);
+  };
+
+  function makeCard(type, hash, rec, txHash) {
+    const div = document.createElement('div');
+    div.className = 'card';
+
+    if (type === 'log') {
+      const src = bytes32ToSource(rec.source);
+      div.innerHTML = `
+        ${levelBadge(Number(rec.level))}
+        <span class="hash">${hash}</span>
+        <span class="meta">${src}</span>
+        <span class="block">block #${rec.blockNumber}</span>`;
+    } else if (type === 'hash') {
+      div.innerHTML = `
+        ${levelBadge(Number(rec.level))}
+        <span class="hash">${hash}</span>
+        <span class="block">block #${rec.blockNumber}</span>`;
+    } else {
+      div.innerHTML = `
+        ${levelBadge(Number(rec.maxSeverity))}
+        <span class="hash">${hash}</span>
+        <span class="meta">${rec.count} logs</span>
+        <span class="block">block #${rec.blockNumber}</span>`;
+    }
+
+    div.onclick = () => openModal(type, hash, rec);
+    return div;
+  }
+
+  // ── modal ─────────────────────────────────────────────────────────────────────
+  function field(key, val, mono = true) {
+    return `<div class="field"><div class="key">${key}</div><div class="val${mono ? '' : ' text'}">${val}</div></div>`;
+  }
+
+  async function openModal(type, hash, rec) {
+    // show modal immediately, then fill tx hash async
+    const modalContent = document.getElementById('modal-content');
+    document.getElementById('overlay').classList.add('open');
+
+    let body = `<h2>${CONTRACTS[type].name} Record</h2>`;
+    body += field('Hash', hash);
+    body += field('Block', `${rec.blockNumber} &nbsp;·&nbsp; ${fmtTime(rec.timestamp)}`, false);
+    body += field('Submitter', `<a href="${SCAN}/address/${rec.submitter}" target="_blank" style="color:#60a5fa">${rec.submitter}</a>`);
+    body += `<div class="field"><div class="key">Transaction</div><div class="val" id="tx-field"><span class="spinner"></span> fetching…</div></div>`;
+
+    if (type === 'log') {
+      body += field('Level', `${levelBadge(Number(rec.level))} ${LEVELS[Number(rec.level)]}`, false);
+      body += field('Source', bytes32ToSource(rec.source), false);
+      body += field('Message Preview', rec.messagePreview, false);
+      body += field('Full Message', rec.message, false);
+      body += field('Metadata JSON', rec.metadataJson);
+      body += field('History Length', String(rec.historyLen), false);
+      body += field('History Hash', rec.historyHash);
+    } else if (type === 'hash') {
+      body += field('Level', `${levelBadge(Number(rec.level))} ${LEVELS[Number(rec.level)]}`, false);
+      body += field('Message Preview', rec.messagePreview, false);
+      body += field('History Length', String(rec.historyLen), false);
+      body += field('History Hash', rec.historyHash);
+      body += `<div class="field"><div class="key">Full Log Data</div><div class="val text" style="color:#94a3b8">Stored off-chain (PostgreSQL)</div></div>`;
+    } else {
+      body += field('Merkle Root', hash);
+      body += field('Level (max severity)', `${levelBadge(Number(rec.maxSeverity))} ${LEVELS[Number(rec.maxSeverity)]}`, false);
+      body += field('Log Range', `${rec.startId} → ${rec.endId}`, false);
+      body += field('Total Logs', String(rec.count), false);
+      body += field('Level Distribution',
+        `DEBUG: ${rec.debugCount} &nbsp; INFO: ${rec.infoCount} &nbsp; WARN: ${rec.warnCount} &nbsp; ERROR: ${rec.errorCount} &nbsp; CRITICAL: ${rec.criticalCount}`, false);
+      body += field('History Length', String(rec.historyLen), false);
+      body += field('History Hash', rec.historyHash);
+    }
+
+    body += `<a class="etherscan-link" href="${SCAN}/address/${CONTRACTS[type].address}#readContract" target="_blank">View Contract on Etherscan ↗</a>`;
+
+    modalContent.innerHTML = body;
+
+    // fetch txHash by querying event on the exact block (single-block, no range limit)
+    try {
+      const c = contract(type);
+      const blockNum = Number(rec.blockNumber);
+      const eventName = type === 'log' ? 'LogWritten' : type === 'hash' ? 'HashWritten' : 'BatchWritten';
+      const logs = await c.queryFilter(c.filters[eventName](), blockNum, blockNum);
+      const match = logs.find(l => l.args[0].toLowerCase() === hash.toLowerCase());
+      const txEl = document.getElementById('tx-field');
+      if (txEl) {
+        if (match) {
+          txEl.innerHTML = `<a href="${SCAN}/tx/${match.transactionHash}" target="_blank" style="color:#60a5fa">${match.transactionHash}</a>`;
+        } else {
+          txEl.textContent = 'Not found';
+        }
+      }
+    } catch { /* tx field stays as-is */ }
+  }
+
+  window.closeModal = function(e) {
+    if (!e || e.target === document.getElementById('overlay')) {
+      document.getElementById('overlay').classList.remove('open');
+    }
+  };
+
+  // ── tabs ──────────────────────────────────────────────────────────────────────
+  window.switchTab = function(type) {
+    document.querySelectorAll('.tab').forEach((t,i) => t.classList.toggle('active', ['log','hash','batch'][i] === type));
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    document.getElementById(`panel-${type}`).classList.add('active');
+  };
+
+  // ── init ──────────────────────────────────────────────────────────────────────
+  await renderPanel('log');
+  await renderPanel('hash');
+  await renderPanel('batch');
+  // auto-search with default wallet on first load
+  search('log');
+</script>
+</body>
+</html>

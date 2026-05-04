@@ -1,0 +1,37 @@
+[package]
+name = "exonum-logstore"
+version = "0.1.0"
+edition = "2021"
+description = "Exonum blockchain service for anchoring log hashes — research experiment"
+
+[dependencies]
+exonum             = "1.0.0"
+exonum-crypto      = { version = "1.0.0", features = ["with-protobuf"] }
+exonum-derive      = "1.0.0"
+exonum-merkledb    = "1.0.0"
+exonum-proto       = "1.0.0"
+exonum-cli         = "1.0.0"
+exonum-rust-runtime = "1.0.0"
+
+anyhow   = "1"
+hex      = "0.4"
+protobuf = "2"
+serde    = { version = "1", features = ["derive"] }
+# actix-http 1.0.1 uses time::Duration which re-exports chrono::Duration.
+# chrono 0.4.38 renamed Duration → TimeDelta, breaking the Tm arithmetic.
+# Pinning chrono to the last compatible version fixes the trait mismatch.
+chrono   = "=0.4.33"
+time     = "=0.1.42"
+
+[dependencies.tokio]
+version = "0.2"
+features = ["rt-threaded", "macros"]
+
+[build-dependencies]
+exonum-build = "1.0.1"
+
+# actix-http 1.0.1 uses chrono::Duration with time::Tm arithmetic, which is
+# incompatible regardless of pinning. Patch it to use time::Duration for those
+# two expressions so the code compiles without changing the public API.
+[patch.crates-io]
+actix-http = { path = "patches/actix-http" }

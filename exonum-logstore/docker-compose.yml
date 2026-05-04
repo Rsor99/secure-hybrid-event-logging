@@ -1,0 +1,18 @@
+services:
+  exonum:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      # Force amd64 so Exonum's bundled RocksDB 6.20.3 compiles cleanly.
+      # On Apple Silicon this uses Rosetta 2 emulation via Docker Desktop.
+      platforms:
+        - linux/amd64
+    image: exonum-logstore:latest
+    container_name: exonum-logstore
+    platform: linux/amd64
+    ports:
+      - "8200:8200"   # Exonum public API
+      - "8080:8080"   # Vue frontend
+    environment:
+      NODE_API_URL: http://host.docker.internal:3000
+    restart: on-failure

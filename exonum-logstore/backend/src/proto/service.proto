@@ -1,0 +1,3 @@
+syntax = "proto3";
+package exonum.examples.logstore.legacy;
+// Deprecated: split into log_service.proto, hash_service.proto, batch_service.proto

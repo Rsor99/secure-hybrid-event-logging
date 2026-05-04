@@ -1,0 +1,115 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: logging_benchmark
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  mongo:
+    image: mongo:7
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodata:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  exonum-config:
+    image: exonum/exonum-node:latest
+    volumes:
+      - ./exonum-data:/opt/exonum/data
+    entrypoint: /bin/sh -c "if [ ! -f /opt/exonum/data/node-0.toml ]; then exonum-node generate-testnet --count 3 --output-dir /opt/exonum/data; fi"
+
+  node-0:
+    image: exonum/exonum-node:latest
+    depends_on:
+      exonum-config:
+        condition: service_completed_successfully
+    ports:
+      - "8000:8000" # API Port
+      - "6331:6331" # P2P Port
+    volumes:
+      - ./exonum-data/node-0:/opt/exonum/data
+    command: ["run", "--config", "/opt/exonum/data/node.toml", "--db-path", "/opt/exonum/data/db"]
+
+  node-1:
+    image: exonum/exonum-node:latest
+    depends_on:
+      - node-0
+    ports:
+      - "8001:8000"
+      - "6332:6331"
+    volumes:
+      - ./exonum-data/node-1:/opt/exonum/data
+    command: ["run", "--config", "/opt/exonum/data/node.toml", "--db-path", "/opt/exonum/data/db"]
+
+  node-2:
+    image: exonum/exonum-node:latest
+    depends_on:
+      - node-0
+    ports:
+      - "8002:8000"
+      - "6333:6331"
+    volumes:
+      - ./exonum-data/node-2:/opt/exonum/data
+    command: ["run", "--config", "/opt/exonum/data/node.toml", "--db-path", "/opt/exonum/data/db"]
+
+  # --- App หลักของคุณ ---
+  app:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      PORT: 3000
+      DB_TYPE: postgresql
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: logging_benchmark
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_POOL_SIZE: 20
+      MONGO_URI: mongodb://mongo:27017
+      # Exonum (Private Chain) — points to node-0 inside Docker network
+      EXONUM_NODE_URL: http://node-0:8000
+      EXONUM_SERVICE_ID: 130
+      EXONUM_SERVICE_NAME: hashstore
+      EXONUM_PUBLIC_KEY: ${EXONUM_PUBLIC_KEY}
+      EXONUM_SECRET_KEY: ${EXONUM_SECRET_KEY}
+      # Ethereum Sepolia (Public Chain)
+      ETH_RPC_URL: ${ETH_RPC_URL}
+      ETH_PRIVATE_KEY: ${ETH_PRIVATE_KEY}
+      ETH_CONTRACT_ADDRESS: ${ETH_CONTRACT_ADDRESS}
+      ETH_CONFIRMATION_BLOCKS: 3
+      # Benchmark
+      BENCHMARK_DEFAULT_CONCURRENCY: 5
+      BENCHMARK_DEFAULT_TOTAL_WRITES: 10
+      BENCHMARK_BATCH_SIZE: 5
+      EXPORT_DIR: /app/results
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mongo:
+        condition: service_healthy
+      node-0:
+        condition: service_started
+    volumes:
+      - ./results:/app/results
+
+volumes:
+  pgdata:
+  mongodata:

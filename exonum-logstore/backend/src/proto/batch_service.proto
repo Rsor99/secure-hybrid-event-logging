@@ -1,0 +1,33 @@
+syntax = "proto3";
+package exonum.examples.logstore.batch_service;
+import "exonum/crypto/types.proto";
+
+message WriteBatch {
+    string content_hash   = 1;
+    uint64 seed           = 2;
+    string start_id       = 3;
+    string end_id         = 4;
+    uint32 count          = 5;
+    uint32 debug_count    = 6;
+    uint32 info_count     = 7;
+    uint32 warn_count     = 8;
+    uint32 error_count    = 9;
+    uint32 critical_count = 10;
+    string max_severity   = 11;
+}
+
+message BatchRecord {
+    string content_hash         = 1;
+    uint64 history_len          = 2;
+    exonum.crypto.Hash history_hash = 3;
+    string tx_hash              = 4;
+    string start_id             = 5;
+    string end_id               = 6;
+    uint32 count                = 7;
+    uint32 debug_count          = 8;
+    uint32 info_count           = 9;
+    uint32 warn_count           = 10;
+    uint32 error_count          = 11;
+    uint32 critical_count       = 12;
+    string max_severity         = 13;
+}

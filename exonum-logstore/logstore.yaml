@@ -1,0 +1,22 @@
+# Single-node development configuration.
+# Copy this to the chain/ directory after running generate-template/finalize.
+networks:
+  - host: "127.0.0.1"
+    ssl: false
+    public-api-port: 8200
+    private-api-port: 8091
+
+deadline_height: 100000
+supervisor_mode: "simple"
+
+artifacts:
+  logstore:
+    runtime: rust
+    name: "exonum-logstore"
+    version: "0.1.0"
+    action: "none"
+
+instances:
+  logstore:
+    artifact: logstore
+    action: "freeze"

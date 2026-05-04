@@ -1,0 +1,19 @@
+syntax = "proto3";
+package exonum.examples.logstore.hash_service;
+import "exonum/crypto/types.proto";
+
+message WriteHash {
+    string content_hash    = 1;
+    string level           = 2;
+    string message_preview = 3;
+    uint64 seed            = 4;
+}
+
+message HashRecord {
+    string content_hash         = 1;
+    string level                = 2;
+    string message_preview      = 3;
+    uint64 history_len          = 4;
+    exonum.crypto.Hash history_hash = 5;
+    string tx_hash              = 6;
+}

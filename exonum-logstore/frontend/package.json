@@ -1,0 +1,41 @@
+{
+  "name": "exonum-logstore-frontend",
+  "version": "0.1.0",
+  "scripts": {
+    "proto": "pbjs --keep-case -t static-module --root logstore --path node_modules/exonum-client/proto ../backend/src/proto/log_service.proto ../backend/src/proto/hash_service.proto ../backend/src/proto/batch_service.proto -o ./proto/stubs.js",
+    "lint": "eslint --ext .js,.vue src",
+    "compile": "webpack",
+    "build": "npm run proto && npm run lint && npm run compile",
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "axios": "^0.21.1",
+    "buffer": "^6.0.3",
+    "bootstrap": "^4.6.0",
+    "exonum-client": "^0.18.4",
+    "express": "^4.18.0",
+    "http-proxy-middleware": "^2.0.6",
+    "jquery": "^3.6.0",
+    "noty": "^3.2.0-beta",
+    "protobufjs": "^6.11.3",
+    "vue": "^2.7.0",
+    "vue-router": "^3.6.0",
+    "vuex": "^3.6.2",
+    "yargs-parser": "^21.0.0"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.18.0",
+    "@babel/preset-env": "^7.18.0",
+    "babel-eslint": "^10.1.0",
+    "babel-loader": "^8.2.5",
+    "css-loader": "^6.7.0",
+    "eslint": "^8.18.0",
+    "eslint-plugin-vue": "^9.0.0",
+    "file-loader": "^6.2.0",
+    "vue-loader": "^15.9.8",
+    "vue-style-loader": "^4.1.3",
+    "vue-template-compiler": "^2.7.0",
+    "webpack": "^5.73.0",
+    "webpack-cli": "^4.10.0"
+  }
+}

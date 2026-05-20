@@ -6,9 +6,13 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      '/log': 'http://localhost:3000',
-      '/verify': 'http://localhost:3000',
-      '/health': 'http://localhost:3000',
+      '/log':        'http://localhost:3000',
+      '/logs':       'http://localhost:3000',
+      '/verify':     'http://localhost:3000',
+      '/verify-batch': 'http://localhost:3000',
+      '/health':     'http://localhost:3000',
+      '/experiment': 'http://localhost:3000',
+      '/chain':      'http://localhost:3000',
     }
   }
 })

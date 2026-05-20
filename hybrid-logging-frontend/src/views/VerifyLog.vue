@@ -52,8 +52,10 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, inject } from 'vue'
 import axios from 'axios'
+
+const dbBackend = inject('dbBackend', ref('postgres'))
 
 const logId   = ref('')
 const loading = ref(false)
@@ -66,7 +68,7 @@ async function verify() {
   result.value  = null
   error.value   = ''
   try {
-    const res = await axios.get(`/verify/${logId.value.trim()}`)
+    const res = await axios.get(`/verify/${logId.value.trim()}`, { params: { db: dbBackend.value } })
     result.value = res.data
   } catch (e) {
     error.value = e.response?.data?.error ?? e.message

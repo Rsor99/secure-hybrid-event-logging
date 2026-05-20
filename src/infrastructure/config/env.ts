@@ -62,5 +62,9 @@ export const config = {
     batchServiceName:optional("EXONUM_BATCH_SERVICE_NAME", "batch-service"),
   },
 
+  rabbitmq: {
+    url: optional("RABBITMQ_URL", "amqp://guest:guest@localhost:5672"),
+  },
+
   exportDir: optional("EXPORT_DIR", "./results"),
 };

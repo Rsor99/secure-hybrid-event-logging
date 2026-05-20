@@ -17,16 +17,22 @@
     "exp:hybrid-pg-ethereum": "ts-node src/bench/runner.ts --db=postgres --chain=ethereum --strategy=hybrid_public",
     "exp:hybrid-pg-exonum": "ts-node src/bench/runner.ts --db=postgres --chain=exonum --strategy=hybrid_private",
     "exp:hybrid-mongo-ethereum": "ts-node src/bench/runner.ts --db=mongo --chain=ethereum --strategy=hybrid_public",
-    "exp:hybrid-mongo-exonum": "ts-node src/bench/runner.ts --db=mongo --chain=exonum --strategy=hybrid_private"
+    "exp:hybrid-mongo-exonum": "ts-node src/bench/runner.ts --db=mongo --chain=exonum --strategy=hybrid_private",
+    "exp:batch-pg-ethereum": "ts-node src/bench/runner.ts --db=postgres --chain=ethereum --strategy=hybrid_public_batch",
+    "exp:batch-pg-exonum": "ts-node src/bench/runner.ts --db=postgres --chain=exonum --strategy=hybrid_private_batch",
+    "exp:batch-mongo-ethereum": "ts-node src/bench/runner.ts --db=mongo --chain=ethereum --strategy=hybrid_public_batch",
+    "exp:batch-mongo-exonum": "ts-node src/bench/runner.ts --db=mongo --chain=exonum --strategy=hybrid_private_batch"
   },
   "dependencies": {
+    "amqplib": "^1.0.3",
     "axios": "^1.6.2",
     "crypto-js": "^4.2.0",
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
     "json2csv": "^6.0.0-alpha.2",
+    "mongodb": "^7.2.0",
     "pg": "^8.11.3",
-    "uuid": "^9.0.0"
+    "uuid": "^14.0.0"
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-chai-matchers": "^2.1.0",
@@ -39,6 +45,7 @@
     "@nomicfoundation/ignition-core": "^0.15.15",
     "@typechain/ethers-v6": "^0.5.1",
     "@typechain/hardhat": "^9.1.0",
+    "@types/amqplib": "^0.10.8",
     "@types/chai": "^4.3.20",
     "@types/crypto-js": "^4.2.1",
     "@types/express": "^4.17.21",

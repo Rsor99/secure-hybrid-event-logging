@@ -27,7 +27,7 @@
           </li>
 
           <li class="list-group-item">
-            <strong>Storage mode:</strong> Batch Merkle root on-chain, full logs off-chain (PostgreSQL)
+            <strong>Storage mode:</strong> Batch Merkle root on-chain, full logs off-chain (DB)
           </li>
 
           <li class="list-group-item">
@@ -60,7 +60,7 @@
             </table>
             <div class="text-muted small mt-2 ml-1">
               The state proof verifies that the Merkle root is committed in the validator-signed block.
-              Per-log inclusion (leaf → root path) can be verified off-chain by recomputing the tree from PostgreSQL data.
+              Per-log inclusion (leaf → root path) can be verified off-chain by recomputing the tree from off-chain DB data.
             </div>
           </li>
 

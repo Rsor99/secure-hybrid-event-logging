@@ -1,25 +1,25 @@
 import { PostgresAdapter } from '../../infrastructure/database/PostgresAdapter';
-import { LogStorage, WriteResult, VerifyResult } from '../../core/LogStorage';
+import { LogStorage, WriteResult, VerifyResult, WriteOpts } from '../../core/LogStorage';
 import { LogEntry } from '../../core/LogEntry';
 import { HashService } from '../../core/HashService';
 
 export class PostgresStorage implements LogStorage {
-  private readonly adapter: PostgresAdapter;
   readonly name = 'PostgreSQL';
+  readonly adapter: PostgresAdapter;
 
-  constructor() {
-    this.adapter = new PostgresAdapter();
+  constructor(adapter?: PostgresAdapter) {
+    this.adapter = adapter ?? new PostgresAdapter();
   }
 
   async initialize(): Promise<void> {
     return this.adapter.initialize();
   }
 
-  async writeLog(entry: LogEntry): Promise<WriteResult> {
+  async writeLog(entry: LogEntry, _opts?: WriteOpts): Promise<WriteResult> {
     const start = Date.now();
     try {
       if (!entry.dataHash) entry.dataHash = HashService.computeLogHash(entry);
-      await this.adapter.insert(entry);
+      await this.adapter.insertOffchain(entry);
       return { logId: entry.id, success: true, latencyMs: Date.now() - start };
     } catch (err) {
       return { logId: entry.id, success: false, latencyMs: Date.now() - start, error: String(err) };
@@ -28,9 +28,12 @@ export class PostgresStorage implements LogStorage {
 
   async verifyLog(id: string): Promise<VerifyResult> {
     const start = Date.now();
-    const log = await this.adapter.findById(id);
-    if (!log) return { logId: id, valid: false, details: 'Not found', verificationTimeMs: Date.now() - start };
-    const valid = HashService.verifyLogHash(log);
+    const log = await this.readLog(id);
+    if (!log) {
+      return { logId: id, valid: false, details: 'Not found', verificationTimeMs: Date.now() - start };
+    }
+    const recomputed = HashService.computeLogHash(log);
+    const valid = log.dataHash ? recomputed === log.dataHash : true;
     return {
       logId: id,
       valid,
@@ -40,15 +43,14 @@ export class PostgresStorage implements LogStorage {
   }
 
   async readLog(id: string): Promise<LogEntry | null> {
-    return this.adapter.findById(id);
+    return this.adapter.findOffchainById(id);
   }
 
-  async readLogs(opts: { limit?: number; offset?: number; level?: string; source?: string } = {}): Promise<LogEntry[]> {
-    return this.adapter.findMany(opts);
-  }
-
-  async readLogByHash(dataHash: string): Promise<LogEntry | null> {
-    return this.adapter.findByHash(dataHash);
+  async readLogs(
+    opts: { limit?: number; offset?: number; level?: string; source?: string } = {},
+  ): Promise<{ logs: LogEntry[]; total: number }> {
+    const { rows, total } = await this.adapter.listOffchain(opts);
+    return { logs: rows, total };
   }
 
   async close(): Promise<void> {

@@ -209,8 +209,11 @@ export default {
       },
 
       // ── off-chain hash match (hybrid single) ────────────────────────────
+      // This frontend only verifies private-chain (Exonum) anchors. Restrict
+      // the off-chain lookup to the matching DB table so we don't false-match
+      // a hash that was actually anchored on Ethereum.
       verifyOffChainHash (contentHash) {
-        return axios.get(`/node-api/verify-offchain/${contentHash}`).then(r => r.data)
+        return axios.get(`/node-api/verify-offchain/${contentHash}?chain=private`).then(r => r.data)
       },
 
       getLogs (offset = 0, limit = 20) {

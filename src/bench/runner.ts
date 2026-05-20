@@ -1,5 +1,7 @@
 import { PostgresStorage } from '../adapters/storage/PostgresStorage';
 import { MongoStorage } from '../adapters/storage/MongoStorage';
+import { PostgresAdapter } from '../infrastructure/database/PostgresAdapter';
+import { MongoAdapter } from '../infrastructure/database/MongoAdapter';
 import { ExonumAnchor } from '../adapters/storage/ExonumAnchor';
 import { EthereumAnchor } from '../adapters/storage/EthereumAnchor';
 import { HybridStorage } from '../adapters/composite/HybridStorage';
@@ -48,17 +50,41 @@ function parseArgList(key: string): string[] {
   return raw ? raw.split(',') : [];
 }
 
+// "Hybrid + batch mode" should anchor a single Merkle root per batch — that's
+// the dedicated *_BATCH strategy. Without this, batch mode falls back to
+// per-entry writeLog (no Merkle, defeats the point of batch+hybrid).
+function effectiveStrategy(strategy: LogStrategy, mode: WriteMode): LogStrategy {
+  if (mode !== WriteMode.BATCH) return strategy;
+  if (strategy === LogStrategy.HYBRID_PRIVATE) return LogStrategy.HYBRID_PRIVATE_BATCH;
+  if (strategy === LogStrategy.HYBRID_PUBLIC)  return LogStrategy.HYBRID_PUBLIC_BATCH;
+  return strategy;
+}
+
 function makeGroup(strategies: LogStrategy[], modes: WriteMode[], scale: { concurrency: number; totalWrites: number; batchSize: number }): BenchmarkConfig[] {
-  return strategies.flatMap((strategy) =>
-    modes.map((mode) => ({ strategy, mode, ...scale })),
-  );
+  const seen = new Set<string>();
+  const out: BenchmarkConfig[] = [];
+  for (const s of strategies) {
+    for (const mode of modes) {
+      const strategy = effectiveStrategy(s, mode);
+      // Auto-promote can collide when a group lists both HYBRID_PRIVATE and
+      // HYBRID_PRIVATE_BATCH — their batch-mode cells resolve to the same
+      // (strategy, mode) pair. Dedupe by key so each pair runs at most once.
+      const key = `${strategy}|${mode}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({ strategy, mode, ...scale });
+    }
+  }
+  return out;
 }
 
 function buildGroups(scale: { concurrency: number; totalWrites: number; batchSize: number }): Record<string, BenchmarkConfig[]> {
   return {
-    'db-vs-private':    makeGroup([LogStrategy.DATABASE_ONLY, LogStrategy.PRIVATE_CHAIN,  LogStrategy.HYBRID_PRIVATE], ALL_MODES, scale),
-    'db-vs-public':     makeGroup([LogStrategy.DATABASE_ONLY, LogStrategy.PUBLIC_CHAIN,   LogStrategy.HYBRID_PUBLIC],  ALL_MODES, scale),
-    'hybrid-vs-public': makeGroup([LogStrategy.PUBLIC_CHAIN,  LogStrategy.HYBRID_PUBLIC,  LogStrategy.HYBRID_PRIVATE], ALL_MODES, scale),
+    'db-vs-private':       makeGroup([LogStrategy.DATABASE_ONLY, LogStrategy.PRIVATE_CHAIN,        LogStrategy.HYBRID_PRIVATE],       ALL_MODES, scale),
+    'db-vs-public':        makeGroup([LogStrategy.DATABASE_ONLY, LogStrategy.PUBLIC_CHAIN,          LogStrategy.HYBRID_PUBLIC],        ALL_MODES, scale),
+    'hybrid-vs-public':    makeGroup([LogStrategy.PUBLIC_CHAIN,  LogStrategy.HYBRID_PUBLIC,         LogStrategy.HYBRID_PRIVATE],       ALL_MODES, scale),
+    'hybrid-batch-private':makeGroup([LogStrategy.DATABASE_ONLY, LogStrategy.HYBRID_PRIVATE,        LogStrategy.HYBRID_PRIVATE_BATCH], ALL_MODES, scale),
+    'hybrid-batch-public': makeGroup([LogStrategy.DATABASE_ONLY, LogStrategy.HYBRID_PUBLIC,         LogStrategy.HYBRID_PUBLIC_BATCH],  ALL_MODES, scale),
   };
 }
 
@@ -76,6 +102,7 @@ Storage options:
 Experiment selection:
   --filter=<group>         Preset experiment group
                            Valid: db-vs-private | db-vs-public | hybrid-vs-public
+                                  hybrid-batch-private | hybrid-batch-public
 
   --strategy=<s>[,<s>...]  Specific strategies
                            Valid: ${VALID_STRATEGIES.join(' | ')}
@@ -109,10 +136,20 @@ function buildAnchors(chainArg: ChainChoice | undefined): {
   publicAnchorHash: LogStorage;
 } {
   return {
-    privateChainFull:  chainArg === 'ethereum' ? new EthereumAnchor('full')      : new ExonumAnchor('full'),
-    publicChainFull:   chainArg === 'exonum'   ? new ExonumAnchor('full')         : new EthereumAnchor('full'),
-    privateAnchorHash: chainArg === 'ethereum' ? new EthereumAnchor('hash-only')  : new ExonumAnchor('hash-only'),
-    publicAnchorHash:  chainArg === 'exonum'   ? new ExonumAnchor('hash-only')    : new EthereumAnchor('hash-only'),
+    privateChainFull:  chainArg === 'ethereum' ? new EthereumAnchor('full')     : new ExonumAnchor('full'),
+    publicChainFull:   chainArg === 'exonum'   ? new ExonumAnchor('full')        : new EthereumAnchor('full'),
+    privateAnchorHash: chainArg === 'ethereum' ? new EthereumAnchor('hash-only') : new ExonumAnchor('hash-only'),
+    publicAnchorHash:  chainArg === 'exonum'   ? new ExonumAnchor('hash-only')   : new EthereumAnchor('hash-only'),
+  };
+}
+
+function buildBatchAnchors(chainArg: ChainChoice | undefined): {
+  privateChainBatch: LogStorage;
+  publicChainBatch: LogStorage;
+} {
+  return {
+    privateChainBatch: chainArg === 'ethereum' ? new EthereumAnchor('batch') : new ExonumAnchor('batch'),
+    publicChainBatch:  chainArg === 'exonum'   ? new ExonumAnchor('batch')   : new EthereumAnchor('batch'),
   };
 }
 
@@ -167,20 +204,32 @@ async function main(): Promise<void> {
   const scale = { concurrency, totalWrites, batchSize };
   const GROUPS = buildGroups(scale);
 
-  const dbStorage: LogStorage = dbArg === 'mongo' ? new MongoStorage() : new PostgresStorage();
-  await dbStorage.initialize?.();
+  const dbAdapter = dbArg === 'mongo' ? new MongoAdapter() : new PostgresAdapter();
+  await dbAdapter.initialize();
+  const dbStorage: LogStorage = dbArg === 'mongo'
+    ? new MongoStorage(dbAdapter as MongoAdapter)
+    : new PostgresStorage(dbAdapter as PostgresAdapter);
 
   const { privateChainFull, publicChainFull, privateAnchorHash, publicAnchorHash } = buildAnchors(chainArg);
 
+  const { privateChainBatch, publicChainBatch } = buildBatchAnchors(chainArg);
+
   const storages = new Map<LogStrategy, LogStorage>([
-    [LogStrategy.DATABASE_ONLY,  dbStorage],
-    [LogStrategy.PRIVATE_CHAIN,  privateChainFull],
-    [LogStrategy.PUBLIC_CHAIN,   publicChainFull],
-    [LogStrategy.HYBRID_PRIVATE, new HybridStorage(dbStorage, privateAnchorHash)],
-    [LogStrategy.HYBRID_PUBLIC,  new HybridStorage(dbStorage, publicAnchorHash)],
+    [LogStrategy.DATABASE_ONLY,        dbStorage],
+    [LogStrategy.PRIVATE_CHAIN,        privateChainFull],
+    [LogStrategy.PUBLIC_CHAIN,         publicChainFull],
+    [LogStrategy.HYBRID_PRIVATE,       new HybridStorage(dbAdapter, privateAnchorHash,  'anchored_private')],
+    [LogStrategy.HYBRID_PRIVATE_BATCH, new HybridStorage(dbAdapter, privateChainBatch,  'batched_private')],
+    [LogStrategy.HYBRID_PUBLIC,        new HybridStorage(dbAdapter, publicAnchorHash,   'anchored_public')],
+    [LogStrategy.HYBRID_PUBLIC_BATCH,  new HybridStorage(dbAdapter, publicChainBatch,   'batched_public')],
   ]);
 
-  const engine = new BenchmarkEngine(storages);
+  const engine = new BenchmarkEngine(
+    storages,
+    undefined,
+    dbArg === 'mongo' ? undefined : (dbAdapter as PostgresAdapter),
+    dbArg === 'mongo' ? (dbAdapter as MongoAdapter) : null,
+  );
 
   let matrix: BenchmarkConfig[];
   let label: string;
@@ -206,6 +255,9 @@ async function main(): Promise<void> {
     console.error('No benchmark cells matched the given options.');
     process.exit(1);
   }
+
+  // Stamp every cell with the active DB so the engine can pick the right adapter.
+  for (const cell of matrix) cell.db = dbArg;
 
   console.log(`DB: ${dbStorage.name}  |  Private chain: ${privateChainFull.name}  |  Public chain: ${publicChainFull.name}`);
   console.log(`Concurrency: ${concurrency}  |  Total writes/cell: ${totalWrites}  |  Batch size: ${batchSize}`);

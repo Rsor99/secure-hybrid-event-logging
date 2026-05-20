@@ -4,8 +4,29 @@
       <div class="nav-brand">🔗 Hybrid Logging</div>
       <div class="nav-links">
         <router-link to="/send" class="nav-link">Send Log</router-link>
-        <router-link to="/logs" class="nav-link">Logs</router-link>
+        <span class="nav-sep">DB</span>
+        <router-link to="/logs"     class="nav-link">Offchain</router-link>
+        <router-link to="/anchored" class="nav-link">Anchored</router-link>
+        <router-link to="/batched"  class="nav-link">Batched</router-link>
+        <router-link to="/batches"  class="nav-link">Batches</router-link>
+        <span class="nav-sep" style="margin-left:4px">·</span>
         <router-link to="/verify" class="nav-link">Verify</router-link>
+        <router-link to="/experiments" class="nav-link">Experiments</router-link>
+
+        <!-- DB backend toggle -->
+        <div class="db-toggle" title="Select database backend">
+          <button
+            class="db-btn"
+            :class="{ active: dbBackend === 'postgres' }"
+            @click="setDb('postgres')"
+          >PG</button>
+          <button
+            class="db-btn"
+            :class="{ active: dbBackend === 'mongo' }"
+            @click="setDb('mongo')"
+          >Mongo</button>
+        </div>
+
         <span class="health-dot" :class="healthStatus" :title="healthLabel" />
       </div>
     </nav>
@@ -16,17 +37,26 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, watch, onMounted, provide, readonly } from 'vue'
 import axios from 'axios'
 
 const healthStatus = ref('unknown')
 const healthLabel = ref('Checking...')
 
+const dbBackend = ref(localStorage.getItem('dbBackend') ?? 'postgres')
+watch(dbBackend, v => localStorage.setItem('dbBackend', v))
+
+provide('dbBackend', readonly(dbBackend))
+
+function setDb(v) {
+  dbBackend.value = v
+}
+
 onMounted(async () => {
   try {
     const r = await axios.get('/health')
     healthStatus.value = 'ok'
-    healthLabel.value = `DB: ${r.data.db}`
+    healthLabel.value = `PG: ${r.data.pg} | Mongo: ${r.data.mongo ?? r.data.db ?? 'unavailable'}`
   } catch {
     healthStatus.value = 'error'
     healthLabel.value = 'Backend offline'
@@ -42,19 +72,34 @@ onMounted(async () => {
   background: #161b22; border-bottom: 1px solid #30363d;
 }
 .nav-brand { font-weight: 700; font-size: 15px; color: #58a6ff; }
-.nav-links { display: flex; align-items: center; gap: 20px; }
+.nav-links { display: flex; align-items: center; gap: 6px; }
+.nav-sep { color: #30363d; font-size: 12px; padding: 0 4px; }
 .nav-link {
   color: #8b949e; text-decoration: none; font-size: 14px;
   padding: 4px 8px; border-radius: 6px; transition: color .15s, background .15s;
 }
 .nav-link:hover, .nav-link.router-link-active { color: #e2e8f0; background: #21262d; }
+
+/* DB toggle */
+.db-toggle {
+  display: flex; border: 1px solid #30363d; border-radius: 6px; overflow: hidden;
+  margin-left: 4px;
+}
+.db-btn {
+  padding: 3px 10px; font-size: 12px; font-weight: 600;
+  background: transparent; border: none; color: #8b949e;
+  cursor: pointer; transition: background .15s, color .15s;
+}
+.db-btn:hover  { background: #21262d; color: #e2e8f0; }
+.db-btn.active { background: #1a2d4a; color: #58a6ff; }
+
 .health-dot {
   width: 8px; height: 8px; border-radius: 50%; cursor: help;
 }
 .health-dot.ok      { background: #3fb950; box-shadow: 0 0 6px #3fb950; }
 .health-dot.error   { background: #f85149; box-shadow: 0 0 6px #f85149; }
 .health-dot.unknown { background: #8b949e; }
-.main { flex: 1; padding: 32px 24px; max-width: 880px; margin: 0 auto; width: 100%; }
+.main { flex: 1; padding: 32px 32px; max-width: 1400px; margin: 0 auto; width: 100%; }
 
 /* shared utilities */
 .card { background: #161b22; border: 1px solid #30363d; border-radius: 10px; padding: 24px; }

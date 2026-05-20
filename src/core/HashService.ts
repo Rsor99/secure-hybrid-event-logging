@@ -6,22 +6,8 @@ export class HashService {
     return crypto.createHash('sha256').update(data).digest('hex');
   }
 
-  static computeBlockHash(
-    index: number,
-    timestamp: string,
-    previousHash: string,
-    dataHash: string,
-    nonce = 0
-  ): string {
-    return HashService.sha256(`${index}:${timestamp}:${previousHash}:${dataHash}:${nonce}`);
-  }
-
   static computeLogHash(log: LogEntry): string {
     return HashService.sha256(log.toHashableString());
-  }
-
-  static verifyLogHash(log: LogEntry): boolean {
-    return HashService.sha256(log.toHashableString()) === log.dataHash;
   }
 
   static computeBatchHash(entries: LogEntry[]): string {

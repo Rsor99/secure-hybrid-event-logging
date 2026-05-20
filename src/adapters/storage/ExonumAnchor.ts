@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 import axios, { AxiosInstance } from 'axios';
-import { LogStorage, WriteResult, VerifyResult, BatchWriteResult, MetricsProvider } from '../../core/LogStorage';
+import { LogStorage, WriteResult, VerifyResult, BatchWriteResult, MetricsProvider, WriteOpts } from '../../core/LogStorage';
 import { LogEntry, LogLevel } from '../../core/LogEntry';
 import { HashService } from '../../core/HashService';
 import { config } from '../../infrastructure/config/env';
@@ -109,7 +109,6 @@ export class ExonumAnchor implements LogStorage, MetricsProvider {
   private readonly client:            AxiosInstance;
   private readonly hashRegistry     = new Map<string, string>();
   private readonly entryRegistry    = new Map<string, LogEntry>();
-  private readonly latencies:         number[] = [];
   private readonly confirmationTimes: number[] = [];
   private readonly svcId:             number;
   private readonly svcName:           string;
@@ -124,7 +123,7 @@ export class ExonumAnchor implements LogStorage, MetricsProvider {
     this.client  = axios.create({ baseURL: config.exonum.nodeUrl, timeout: 30000 });
   }
 
-  async writeLog(entry: LogEntry): Promise<WriteResult> {
+  async writeLog(entry: LogEntry, opts?: WriteOpts): Promise<WriteResult> {
     const start = Date.now();
     try {
       const hash = entry.dataHash || HashService.computeLogHash(entry);
@@ -147,13 +146,16 @@ export class ExonumAnchor implements LogStorage, MetricsProvider {
       }
 
       const { txHash, submitLatency } = await this.submitTxBytes(txBytes, 0);
-      const { confirmed } = await this.waitForConfirmation(txHash);
-
-      const totalLatency = Date.now() - start;
-      this.latencies.push(submitLatency);
-      this.confirmationTimes.push(totalLatency - submitLatency);
-
       entry.blockchainTxId = txHash;
+
+      if (opts?.waitForConfirmation === false) {
+        entry.blockchainConfirmed = false;
+        return { logId: entry.id, success: true, latencyMs: Date.now() - start, txId: txHash, confirmed: false };
+      }
+
+      const { confirmed } = await this.waitForConfirmation(txHash);
+      const totalLatency = Date.now() - start;
+      this.confirmationTimes.push(totalLatency - submitLatency);
       entry.blockchainConfirmed = confirmed;
       return { logId: entry.id, success: true, latencyMs: totalLatency, txId: txHash, confirmed };
     } catch (err) {
@@ -161,7 +163,7 @@ export class ExonumAnchor implements LogStorage, MetricsProvider {
     }
   }
 
-  async writeBatch(entries: LogEntry[]): Promise<BatchWriteResult> {
+  async writeBatch(entries: LogEntry[], opts?: WriteOpts): Promise<BatchWriteResult> {
     if (entries.length === 0) {
       return { batchHash: '', startId: '', endId: '', count: 0, success: false, latencyMs: 0, error: 'Empty batch' };
     }
@@ -212,18 +214,20 @@ export class ExonumAnchor implements LogStorage, MetricsProvider {
       }
 
       const { txHash, submitLatency } = await this.submitTxBytes(txBytes, 0);
-      const { confirmed } = await this.waitForConfirmation(txHash);
-
-      const totalLatency = Date.now() - start;
-      this.latencies.push(submitLatency);
-      this.confirmationTimes.push(totalLatency - submitLatency);
-
       for (const e of entries) {
         e.blockchainTxId = txHash;
-        e.blockchainConfirmed = confirmed;
         this.hashRegistry.set(e.id, contentHash);
       }
 
+      if (opts?.waitForConfirmation === false) {
+        for (const e of entries) e.blockchainConfirmed = false;
+        return { batchHash: contentHash, startId, endId, count: entries.length, success: true, latencyMs: Date.now() - start, txId: txHash, confirmed: false };
+      }
+
+      const { confirmed } = await this.waitForConfirmation(txHash);
+      const totalLatency = Date.now() - start;
+      this.confirmationTimes.push(totalLatency - submitLatency);
+      for (const e of entries) e.blockchainConfirmed = confirmed;
       return { batchHash: contentHash, startId, endId, count: entries.length, success: true, latencyMs: totalLatency, txId: txHash, confirmed };
     } catch (err) {
       return { batchHash: '', startId: '', endId: '', count: entries.length, success: false, latencyMs: Date.now() - start, error: String(err) };
@@ -270,6 +274,18 @@ export class ExonumAnchor implements LogStorage, MetricsProvider {
     return this.confirmationTimes.reduce((a, b) => a + b, 0) / this.confirmationTimes.length;
   }
 
+  // Used by the queue confirm handler to backfill confirmation timing
+  // for the wait=false path (where writeLog returns before confirmation).
+  recordConfirmationTime(ms: number): void {
+    if (ms >= 0) this.confirmationTimes.push(ms);
+  }
+
+  // Called between benchmark cells so each cell's avg metric reflects only
+  // that cell's writes, not the running average across all prior cells.
+  resetMetrics(): void {
+    this.confirmationTimes.length = 0;
+  }
+
   private async submitTxBytes(txArgBytes: Buffer, methodId: number): Promise<{ txHash: string; submitLatency: number }> {
     const start       = Date.now();
     const anyTxBytes  = encodeAnyTx(this.svcId, methodId, txArgBytes);
@@ -282,13 +298,27 @@ export class ExonumAnchor implements LogStorage, MetricsProvider {
     return { txHash: res.data.tx_hash as string, submitLatency: Date.now() - start };
   }
 
+  // Single-shot tri-state check used by the confirm queue.
+  async checkTx(txHash: string): Promise<{ confirmed: boolean; pending: boolean }> {
+    try {
+      const res = await this.client.get(`/api/explorer/v1/transactions?hash=${txHash}`);
+      const type = res.data?.type;
+      if (type === 'committed') return { confirmed: true, pending: false };
+      if (type === 'in-pool')   return { confirmed: false, pending: true };
+      // Anything else (e.g. unknown) — treat as failed/dropped
+      return { confirmed: false, pending: false };
+    } catch {
+      // 404 / network — tx may not yet be indexed by this node
+      return { confirmed: false, pending: true };
+    }
+  }
+
   private async waitForConfirmation(txHash: string): Promise<{ confirmed: boolean }> {
     for (let attempt = 0; attempt < 30; attempt++) {
       await new Promise<void>((resolve) => setTimeout(resolve, 500));
-      try {
-        const res = await this.client.get(`/api/explorer/v1/transactions?hash=${txHash}`);
-        if (res.data.type === 'committed') return { confirmed: true };
-      } catch { /* not yet indexed */ }
+      const { confirmed, pending } = await this.checkTx(txHash);
+      if (confirmed) return { confirmed: true };
+      if (!pending)  return { confirmed: false };
     }
     return { confirmed: false };
   }

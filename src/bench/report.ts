@@ -2,7 +2,11 @@ import fs from 'fs';
 import path from 'path';
 import { BenchmarkResult } from './engine';
 
-export function exportResults(results: BenchmarkResult[], prefix = 'benchmark', outputDir = './results'): void {
+export function exportResults(
+  results: BenchmarkResult[],
+  prefix = 'benchmark',
+  outputDir = './results',
+): { jsonPath: string; csvPath: string } {
   const OUTPUT_DIR = path.resolve(process.cwd(), outputDir);
   fs.mkdirSync(OUTPUT_DIR, { recursive: true });
   const ts = new Date().toISOString().replace(/[:.]/g, '-');
@@ -13,7 +17,10 @@ export function exportResults(results: BenchmarkResult[], prefix = 'benchmark', 
 
   const csvPath = `${base}.csv`;
   if (results.length > 0) {
-    const headers = Object.keys(results[0]) as (keyof BenchmarkResult)[];
+    // Per-row tamper detail belongs in JSON only — embedding the array in a CSV
+    // cell breaks Excel parsing and bloats the file.
+    const headers = (Object.keys(results[0]) as (keyof BenchmarkResult)[])
+      .filter((h) => h !== 'tamperedLogs');
     const rows = [
       headers.join(','),
       ...results.map((r) => headers.map((h) => JSON.stringify(r[h] ?? '')).join(',')),
@@ -22,4 +29,5 @@ export function exportResults(results: BenchmarkResult[], prefix = 'benchmark', 
   }
 
   console.log(`Results exported → CSV: ${csvPath} | JSON: ${jsonPath}`);
+  return { jsonPath, csvPath };
 }

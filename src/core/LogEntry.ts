@@ -1,4 +1,15 @@
-import { v4 as uuidv4 } from 'uuid';
+import { v7 as uuidv7 } from 'uuid';
+
+function sortKeysDeep(obj: unknown): unknown {
+  if (Array.isArray(obj)) return obj.map(sortKeysDeep);
+  if (obj !== null && typeof obj === 'object') {
+    return Object.keys(obj as object).sort().reduce((acc, k) => {
+      (acc as Record<string, unknown>)[k] = sortKeysDeep((obj as Record<string, unknown>)[k]);
+      return acc;
+    }, {} as Record<string, unknown>);
+  }
+  return obj;
+}
 
 export enum LogLevel {
   DEBUG = 'DEBUG',
@@ -32,7 +43,7 @@ export class LogEntry {
   public blockchainConfirmed: boolean;
 
   constructor(data: LogEntryData) {
-    this.id = data.id ?? uuidv4();
+    this.id = data.id ?? uuidv7();
     this.timestamp = data.timestamp ?? new Date();
     this.level = data.level;
     this.source = data.source;
@@ -50,7 +61,7 @@ export class LogEntry {
       level: this.level,
       source: this.source,
       message: this.message,
-      metadata: this.metadata,
+      metadata: sortKeysDeep(this.metadata),
     });
   }
 

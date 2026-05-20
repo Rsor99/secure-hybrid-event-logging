@@ -24,7 +24,7 @@
           </li>
 
           <li class="list-group-item">
-            <strong>Storage mode:</strong> Hash on-chain, full log off-chain (PostgreSQL)
+            <strong>Storage mode:</strong> Hash on-chain, full log off-chain (DB)
           </li>
 
           <li class="list-group-item">
@@ -51,7 +51,7 @@
                   <td class="py-0">
                     <span v-if="offChain === null" class="badge badge-light border">Checking…</span>
                     <span v-else-if="offChain.match" class="badge badge-success">✅ Valid <span class="font-weight-normal">(recomputed SHA256 of canonical JSON matches on-chain hash)</span></span>
-                    <span v-else-if="offChain && offChain.found_in_db === false" class="badge badge-warning">⚠ Not in PostgreSQL</span>
+                    <span v-else-if="offChain && offChain.found_in_db === false" class="badge badge-warning">⚠ Not found in off-chain DB</span>
                     <span v-else class="badge badge-danger">❌ Hash mismatch</span>
                   </td>
                 </tr>
@@ -69,13 +69,13 @@
             </li>
 
             <li class="list-group-item">
-              <strong>Off-chain data (PostgreSQL):</strong>
+              <strong>Off-chain data (DB):</strong>
               <div class="ml-3 mt-1 small">
                 <div v-if="offChain && offChain.found_in_db">
                   <div>Status: <span class="badge badge-success">Found</span></div>
-                  <div class="text-muted mt-1">Full message and metadata are stored in PostgreSQL only.</div>
+                  <div class="text-muted mt-1">Full message and metadata are stored in the off-chain DB only.</div>
                 </div>
-                <div v-else class="text-muted">Full message and metadata stored in PostgreSQL.</div>
+                <div v-else class="text-muted">Full message and metadata stored in the off-chain DB.</div>
               </div>
             </li>
 
@@ -126,10 +126,10 @@
       <div v-if="info && info.verified && offChain && offChain.match" class="alert alert-success mt-3">
         <strong>Cryptographic proof verified.</strong> The content hash exists in the Exonum
         <code>hashes</code> state tree and is signed by the validator set. The log was retrieved
-        from PostgreSQL and its recomputed SHA256 matches the on-chain anchor — confirming data integrity.
+        from the off-chain DB and its recomputed SHA256 matches the on-chain anchor — confirming data integrity.
       </div>
       <div v-else-if="info && info.verified && offChain && !offChain.match" class="alert alert-warning mt-3">
-        <strong>On-chain proof valid</strong> — but the off-chain log hash does not match or was not found in PostgreSQL.
+        <strong>On-chain proof valid</strong> — but the off-chain log hash does not match or was not found in the DB.
         The anchor is cryptographically sound; the off-chain data may have been modified or not yet synced.
       </div>
       <div v-else-if="info && !info.verified" class="alert alert-warning mt-3">

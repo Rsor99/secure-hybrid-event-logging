@@ -1,10 +1,15 @@
-version: '3.8'
+# Full stack (excluding Exonum private chain).
+# Exonum lives in exonum-logstore/docker-compose.yml — run that separately:
+#   cd exonum-logstore && docker compose up -d
+# Then EXONUM_NODE_URL below points to it via host.docker.internal.
 
 services:
+  # ── Infrastructure ───────────────────────────────────────────────────────────
+
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_DB: logging_benchmark
+      POSTGRES_DB: secure_hybrid_event_logging
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
     ports:
@@ -29,87 +34,88 @@ services:
       timeout: 5s
       retries: 5
 
-  exonum-config:
-    image: exonum/exonum-node:latest
-    volumes:
-      - ./exonum-data:/opt/exonum/data
-    entrypoint: /bin/sh -c "if [ ! -f /opt/exonum/data/node-0.toml ]; then exonum-node generate-testnet --count 3 --output-dir /opt/exonum/data; fi"
-
-  node-0:
-    image: exonum/exonum-node:latest
-    depends_on:
-      exonum-config:
-        condition: service_completed_successfully
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
     ports:
-      - "8000:8000" # API Port
-      - "6331:6331" # P2P Port
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
     volumes:
-      - ./exonum-data/node-0:/opt/exonum/data
-    command: ["run", "--config", "/opt/exonum/data/node.toml", "--db-path", "/opt/exonum/data/db"]
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
-  node-1:
-    image: exonum/exonum-node:latest
-    depends_on:
-      - node-0
-    ports:
-      - "8001:8000"
-      - "6332:6331"
-    volumes:
-      - ./exonum-data/node-1:/opt/exonum/data
-    command: ["run", "--config", "/opt/exonum/data/node.toml", "--db-path", "/opt/exonum/data/db"]
+  # ── API ──────────────────────────────────────────────────────────────────────
 
-  node-2:
-    image: exonum/exonum-node:latest
-    depends_on:
-      - node-0
-    ports:
-      - "8002:8000"
-      - "6333:6331"
-    volumes:
-      - ./exonum-data/node-2:/opt/exonum/data
-    command: ["run", "--config", "/opt/exonum/data/node.toml", "--db-path", "/opt/exonum/data/db"]
-
-  # --- App หลักของคุณ ---
   app:
     build: .
     ports:
       - "3000:3000"
     environment:
       PORT: 3000
-      DB_TYPE: postgresql
-      DB_HOST: postgres
-      DB_PORT: 5432
-      DB_NAME: logging_benchmark
-      DB_USER: postgres
-      DB_PASSWORD: postgres
-      DB_POOL_SIZE: 20
+
+      # PostgreSQL
+      PG_HOST: postgres
+      PG_PORT: 5432
+      PG_NAME: secure_hybrid_event_logging
+      PG_USER: postgres
+      PG_PASSWORD: postgres
+      PG_POOL_SIZE: 20
+
+      # MongoDB
       MONGO_URI: mongodb://mongo:27017
-      # Exonum (Private Chain) — points to node-0 inside Docker network
-      EXONUM_NODE_URL: http://node-0:8000
-      EXONUM_SERVICE_ID: 130
-      EXONUM_SERVICE_NAME: hashstore
-      EXONUM_PUBLIC_KEY: ${EXONUM_PUBLIC_KEY}
-      EXONUM_SECRET_KEY: ${EXONUM_SECRET_KEY}
-      # Ethereum Sepolia (Public Chain)
+      MONGO_DB_NAME: secure_hybrid_event_logging
+      MONGO_POOL_SIZE: 20
+
+      # Ethereum (Sepolia) — set in your .env, passed through here
       ETH_RPC_URL: ${ETH_RPC_URL}
       ETH_PRIVATE_KEY: ${ETH_PRIVATE_KEY}
-      ETH_CONTRACT_ADDRESS: ${ETH_CONTRACT_ADDRESS}
+      ETH_LOG_CONTRACT: ${ETH_LOG_CONTRACT}
+      ETH_HASH_CONTRACT: ${ETH_HASH_CONTRACT}
+      ETH_BATCH_CONTRACT: ${ETH_BATCH_CONTRACT}
       ETH_CONFIRMATION_BLOCKS: 3
-      # Benchmark
-      BENCHMARK_DEFAULT_CONCURRENCY: 5
-      BENCHMARK_DEFAULT_TOTAL_WRITES: 10
-      BENCHMARK_BATCH_SIZE: 5
+
+      # Exonum private chain — running on the host via exonum-logstore compose
+      EXONUM_NODE_URL: http://host.docker.internal:8200
+      EXONUM_PUBLIC_KEY: ${EXONUM_PUBLIC_KEY}
+      EXONUM_SECRET_KEY: ${EXONUM_SECRET_KEY}
+      EXONUM_LOG_SERVICE_ID: 100
+      EXONUM_LOG_SERVICE_NAME: log-service
+      EXONUM_HASH_SERVICE_ID: 101
+      EXONUM_HASH_SERVICE_NAME: hash-service
+      EXONUM_BATCH_SERVICE_ID: 102
+      EXONUM_BATCH_SERVICE_NAME: batch-service
+
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
       EXPORT_DIR: /app/results
+    extra_hosts:
+      # Lets `host.docker.internal` resolve on Linux too (already works on Docker Desktop)
+      - "host.docker.internal:host-gateway"
     depends_on:
       postgres:
         condition: service_healthy
       mongo:
         condition: service_healthy
-      node-0:
-        condition: service_started
+      rabbitmq:
+        condition: service_healthy
     volumes:
       - ./results:/app/results
+
+  # ── Frontend ─────────────────────────────────────────────────────────────────
+
+  frontend:
+    build: ./hybrid-logging-frontend
+    ports:
+      - "5173:80"
+    depends_on:
+      - app
 
 volumes:
   pgdata:
   mongodata:
+  rabbitmq_data:

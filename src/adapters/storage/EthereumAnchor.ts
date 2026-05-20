@@ -1,5 +1,5 @@
 import { ethers } from 'ethers';
-import { LogStorage, WriteResult, VerifyResult, BatchWriteResult, MetricsProvider } from '../../core/LogStorage';
+import { LogStorage, WriteResult, VerifyResult, BatchWriteResult, MetricsProvider, WriteOpts } from '../../core/LogStorage';
 import { LogEntry, LogLevel } from '../../core/LogEntry';
 import { HashService } from '../../core/HashService';
 import { config } from '../../infrastructure/config/env';
@@ -52,7 +52,6 @@ export class EthereumAnchor implements LogStorage, MetricsProvider {
   private readonly contract:  ethers.Contract;
   private readonly hashRegistry  = new Map<string, string>();
   private readonly entryRegistry = new Map<string, LogEntry>();
-  private readonly latencies:          number[] = [];
   private readonly confirmationTimes:  number[] = [];
 
   constructor(private readonly anchorMode: AnchorMode = 'full') {
@@ -71,7 +70,7 @@ export class EthereumAnchor implements LogStorage, MetricsProvider {
     }
   }
 
-  async writeLog(entry: LogEntry): Promise<WriteResult> {
+  async writeLog(entry: LogEntry, opts?: WriteOpts): Promise<WriteResult> {
     const start = Date.now();
     try {
       const hash = entry.dataHash || HashService.computeLogHash(entry);
@@ -98,13 +97,16 @@ export class EthereumAnchor implements LogStorage, MetricsProvider {
       }
 
       const submitLatency = Date.now() - start;
+      entry.blockchainTxId = tx.hash;
+
+      if (opts?.waitForConfirmation === false) {
+        entry.blockchainConfirmed = false;
+        return { logId: entry.id, success: true, latencyMs: Date.now() - start, txId: tx.hash, confirmed: false };
+      }
+
       const receipt       = await tx.wait(config.ethereum.confirmationBlocks);
       const totalLatency  = Date.now() - start;
-
-      this.latencies.push(submitLatency);
       this.confirmationTimes.push(totalLatency - submitLatency);
-
-      entry.blockchainTxId      = receipt.hash;
       entry.blockchainConfirmed = true;
       return { logId: entry.id, success: true, latencyMs: totalLatency, txId: receipt.hash, confirmed: true };
     } catch (err) {
@@ -112,7 +114,7 @@ export class EthereumAnchor implements LogStorage, MetricsProvider {
     }
   }
 
-  async writeBatch(entries: LogEntry[]): Promise<BatchWriteResult> {
+  async writeBatch(entries: LogEntry[], opts?: WriteOpts): Promise<BatchWriteResult> {
     if (entries.length === 0) {
       return { batchHash: '', startId: '', endId: '', count: 0, success: false, latencyMs: 0, error: 'Empty batch' };
     }
@@ -160,18 +162,20 @@ export class EthereumAnchor implements LogStorage, MetricsProvider {
       }
 
       const submitLatency = Date.now() - start;
-      const receipt       = await tx.wait(config.ethereum.confirmationBlocks);
-      const totalLatency  = Date.now() - start;
-
-      this.latencies.push(submitLatency);
-      this.confirmationTimes.push(totalLatency - submitLatency);
-
       for (const e of entries) {
-        e.blockchainTxId      = receipt.hash;
-        e.blockchainConfirmed = true;
+        e.blockchainTxId = tx.hash;
         this.hashRegistry.set(e.id, merkleRoot);
       }
 
+      if (opts?.waitForConfirmation === false) {
+        for (const e of entries) e.blockchainConfirmed = false;
+        return { batchHash: merkleRoot, startId, endId, count: entries.length, success: true, latencyMs: Date.now() - start, txId: tx.hash, confirmed: false };
+      }
+
+      const receipt      = await tx.wait(config.ethereum.confirmationBlocks);
+      const totalLatency = Date.now() - start;
+      this.confirmationTimes.push(totalLatency - submitLatency);
+      for (const e of entries) e.blockchainConfirmed = true;
       return { batchHash: merkleRoot, startId, endId, count: entries.length, success: true, latencyMs: totalLatency, txId: receipt.hash, confirmed: true };
     } catch (err) {
       return { batchHash: '', startId: '', endId: '', count: entries.length, success: false, latencyMs: Date.now() - start, error: String(err) };
@@ -227,9 +231,36 @@ export class EthereumAnchor implements LogStorage, MetricsProvider {
     }
   }
 
+  async checkTx(txHash: string): Promise<{ confirmed: boolean; pending: boolean }> {
+    try {
+      const receipt = await this.provider.getTransactionReceipt(txHash);
+      // No receipt yet — tx is in mempool or unknown to this node, treat as pending
+      if (!receipt) return { confirmed: false, pending: true };
+      // Reverted on-chain — definitively failed
+      if (receipt.status === 0) return { confirmed: false, pending: false };
+      const currentBlock = await this.provider.getBlockNumber();
+      const confirmed = currentBlock - receipt.blockNumber >= config.ethereum.confirmationBlocks;
+      return { confirmed, pending: !confirmed };
+    } catch {
+      return { confirmed: false, pending: true };
+    }
+  }
+
   getAvgConfirmationTimeMs(): number {
     if (this.confirmationTimes.length === 0) return 0;
     return this.confirmationTimes.reduce((a, b) => a + b, 0) / this.confirmationTimes.length;
+  }
+
+  // Used by the queue confirm handler to backfill confirmation timing
+  // for the wait=false path (where writeLog returns before confirmation).
+  recordConfirmationTime(ms: number): void {
+    if (ms >= 0) this.confirmationTimes.push(ms);
+  }
+
+  // Called between benchmark cells so each cell's avg metric reflects only
+  // that cell's writes, not the running average across all prior cells.
+  resetMetrics(): void {
+    this.confirmationTimes.length = 0;
   }
 
   private toBytes32(hash: string): string {

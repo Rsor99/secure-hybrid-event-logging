@@ -1,5 +1,6 @@
 <template>
   <div>
+    <LogDetailModal :log="selected" :db="dbBackend" @close="selected = null" />
     <!-- Filters -->
     <div class="card" style="margin-bottom:20px">
       <p class="section-title">Logs</p>
@@ -35,7 +36,7 @@
           <span style="width:90px">ID</span>
           <span style="width:60px; text-align:center">Chain</span>
         </div>
-        <div v-for="log in logs" :key="log.id" class="log-row">
+        <div v-for="log in logs" :key="log.id" class="log-row" style="cursor:pointer" @click="open(log)">
           <span class="mono" style="width:140px; font-size:11px; color:#8b949e">
             {{ formatTime(log.timestamp) }}
           </span>
@@ -81,8 +82,21 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, inject, watch } from 'vue'
 import axios from 'axios'
+import LogDetailModal from '../components/LogDetailModal.vue'
+
+const dbBackend = inject('dbBackend', ref('postgres'))
+const selected  = ref(null)
+
+async function open(row) {
+  try {
+    const res = await axios.get(`/log/${row.id}`, { params: { db: dbBackend.value } })
+    selected.value = res.data
+  } catch {
+    selected.value = row
+  }
+}
 
 const LIMIT = 50
 
@@ -93,15 +107,17 @@ const offset  = ref(0)
 const loading = ref(false)
 const limit   = LIMIT
 
+watch(dbBackend, () => load(true))
+
 async function load(resetOffset = false) {
   if (resetOffset) offset.value = 0
   loading.value = true
   try {
-    const params = { limit, offset: offset.value }
+    const params = { limit, offset: offset.value, db: dbBackend.value }
     if (filter.level)  params.level  = filter.level
     if (filter.source) params.source = filter.source
-    const res = await axios.get('/logs', { params })
-    logs.value  = res.data.logs || []
+    const res = await axios.get('/logs/offchain', { params })
+    logs.value  = res.data.rows || []
     total.value = res.data.total ?? logs.value.length
   } catch (e) {
     console.error(e)

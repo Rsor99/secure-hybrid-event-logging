@@ -1,25 +1,38 @@
-import { LogStorage, WriteResult, BatchWriteResult } from '../core/LogStorage';
+import { LogStorage, WriteResult, BatchWriteResult, WriteOpts } from '../core/LogStorage';
 import { LogEntry } from '../core/LogEntry';
 
+interface PendingEntry {
+  entry: LogEntry;
+  resolve: (r: WriteResult) => void;
+  reject:  (e: Error) => void;
+}
+
+export type FlushCallback = (result: BatchWriteResult) => void | Promise<void>;
+
 export class BatchWriter {
-  private buffer: LogEntry[] = [];
+  private buffer: PendingEntry[] = [];
   private flushTimer: NodeJS.Timeout | null = null;
-  private lastBatchResult: BatchWriteResult | null = null;
 
   constructor(
     private readonly storage: LogStorage,
     private readonly maxSize = 50,
     private readonly flushIntervalMs = 1000,
+    private readonly opts?: WriteOpts,
+    private readonly onFlush?: FlushCallback,
   ) {}
 
-  write(entry: LogEntry): WriteResult {
-    this.buffer.push(entry);
-    if (this.buffer.length >= this.maxSize) {
-      this.flush().catch(() => {});
-    } else {
-      this.scheduleFlush();
-    }
-    return { logId: entry.id, success: true, latencyMs: 0 };
+  // Returns a Promise that resolves once the entry's enclosing batch has been
+  // written to storage. Lets HTTP callers wait for DB persistence even though
+  // the actual write happens asynchronously when the batch fills or the timer fires.
+  write(entry: LogEntry): Promise<WriteResult> {
+    return new Promise<WriteResult>((resolve, reject) => {
+      this.buffer.push({ entry, resolve, reject });
+      if (this.buffer.length >= this.maxSize) {
+        this.flush().catch(() => {});
+      } else {
+        this.scheduleFlush();
+      }
+    });
   }
 
   async flush(): Promise<BatchWriteResult | null> {
@@ -29,20 +42,36 @@ export class BatchWriter {
     }
     if (this.buffer.length === 0) return null;
 
-    const batch = this.buffer.splice(0);
+    const pending = this.buffer.splice(0);
+    const entries = pending.map((p) => p.entry);
 
-    if (this.storage.writeBatch) {
-      this.lastBatchResult = await this.storage.writeBatch(batch);
-    } else {
-      await Promise.all(batch.map((e) => this.storage.writeLog(e)));
-      this.lastBatchResult = null;
+    try {
+      if (this.storage.writeBatch) {
+        const result = await this.storage.writeBatch(entries, this.opts);
+        // Each entry in the batch shares the same chain tx — report it back per-entry.
+        for (const p of pending) {
+          p.resolve({
+            logId:     p.entry.id,
+            success:   result.success,
+            latencyMs: result.latencyMs,
+            txId:      result.txId,
+            confirmed: result.confirmed,
+            error:     result.error,
+          });
+        }
+        if (this.onFlush) await this.onFlush(result);
+        return result;
+      }
+      // Anchored-mode hybrids without writeBatch: per-entry writeLog.
+      const results = await Promise.all(entries.map((e) => this.storage.writeLog(e, this.opts)));
+      for (let i = 0; i < pending.length; i++) {
+        pending[i].resolve(results[i]);
+      }
+      return null;
+    } catch (err) {
+      for (const p of pending) p.reject(err as Error);
+      throw err;
     }
-
-    return this.lastBatchResult;
-  }
-
-  getLastBatchResult(): BatchWriteResult | null {
-    return this.lastBatchResult;
   }
 
   private scheduleFlush(): void {

@@ -2,6 +2,8 @@
   <div>
     <!-- Config panel -->
     <div class="card" style="margin-bottom:20px">
+
+      <!-- Strategy -->
       <p class="section-title">Storage Strategy</p>
       <div class="strategy-grid">
         <button
@@ -16,63 +18,67 @@
         </button>
       </div>
 
-      <div class="row-3" style="margin-top:20px">
-        <div>
-          <label class="label">Write Mode</label>
-          <select v-model="form.writeMode" class="select">
-            <option value="sync">Sync</option>
-            <option value="async">Async</option>
-            <option value="batch">Batch</option>
-          </select>
+      <!-- ─── Single Send ─── -->
+      <div>
+        <div class="row-3" style="margin-top:20px">
+          <div>
+            <label class="label">Write Mode</label>
+            <select v-model="form.writeMode" class="select">
+              <option value="sync">Sync</option>
+              <option value="async">Async</option>
+              <option value="batch">Batch</option>
+            </select>
+          </div>
+          <div>
+            <label class="label">Level</label>
+            <select v-model="form.level" class="select">
+              <option>DEBUG</option><option>INFO</option>
+              <option>WARN</option><option>ERROR</option><option>CRITICAL</option>
+            </select>
+          </div>
+          <div>
+            <label class="label">Source</label>
+            <input v-model="form.source" class="input" placeholder="e.g. auth-service" />
+          </div>
         </div>
-        <div>
-          <label class="label">Level</label>
-          <select v-model="form.level" class="select">
-            <option>DEBUG</option><option>INFO</option>
-            <option>WARN</option><option>ERROR</option><option>CRITICAL</option>
-          </select>
+
+        <div style="margin-top:14px">
+          <label class="label">Message</label>
+          <textarea v-model="form.message" class="textarea" placeholder="Log message..." />
         </div>
-        <div>
-          <label class="label">Source</label>
-          <input v-model="form.source" class="input" placeholder="e.g. auth-service" />
+
+        <div style="margin-top:14px">
+          <label class="label">Metadata (JSON, optional)</label>
+          <input v-model="metaRaw" class="input mono" placeholder='{"userId":"123"}' />
+          <p v-if="metaError" class="err-text">{{ metaError }}</p>
+        </div>
+
+        <div style="margin-top:18px; display:flex; gap:10px; align-items:center">
+          <button class="btn btn-primary" :disabled="sending" @click="sendOne">
+            {{ sending ? 'Sending…' : '▶ Send Log' }}
+          </button>
+          <button v-if="sendLog.length" class="btn btn-danger" style="margin-left:auto" @click="sendLog=[]">
+            Clear
+          </button>
         </div>
       </div>
 
-      <div style="margin-top:14px">
-        <label class="label">Message</label>
-        <textarea v-model="form.message" class="textarea" placeholder="Log message..." />
-      </div>
-
-      <div style="margin-top:14px">
-        <label class="label">Metadata (JSON, optional)</label>
-        <input v-model="metaRaw" class="input mono" placeholder='{"userId":"123"}' />
-        <p v-if="metaError" class="err-text">{{ metaError }}</p>
-      </div>
-
-      <div style="margin-top:18px; display:flex; gap:10px; align-items:center">
-        <button class="btn btn-primary" :disabled="sending" @click="sendOne">
-          {{ sending ? 'Sending…' : '▶ Send Log' }}
-        </button>
-        <button class="btn btn-ghost" @click="sendBurst" :disabled="sending">
-          ⚡ Burst ×10
-        </button>
-        <button v-if="log.length" class="btn btn-danger" style="margin-left:auto" @click="log=[]">
-          Clear
-        </button>
-      </div>
     </div>
 
-    <!-- Live log -->
-    <div v-if="log.length" class="card">
-      <p class="section-title">Response Log <span style="color:#3fb950">({{ log.length }})</span></p>
+    <!-- ─── Live response log ─── -->
+    <div v-if="sendLog.length" class="card">
+      <p class="section-title">Response Log <span style="color:#3fb950">({{ sendLog.length }})</span></p>
       <div class="log-scroll">
-        <div v-for="(entry, i) in [...log].reverse()" :key="i" class="log-row">
+        <div v-for="(entry, i) in [...sendLog].reverse()" :key="i" class="log-row">
           <span class="log-time">{{ entry.time }}</span>
           <span class="tag" :class="entry.ok ? 'tag-info' : 'tag-error'">
             {{ entry.ok ? '✓ OK' : '✗ ERR' }}
           </span>
           <span class="mono" style="color:#e3b341">{{ entry.latency }}ms</span>
           <span class="strategy-pill">{{ entry.strategy }}</span>
+          <span class="db-pill" :class="entry.db === 'mongo' ? 'db-mongo' : 'db-pg'">
+            {{ entry.db === 'mongo' ? 'Mongo' : 'PG' }}
+          </span>
           <span class="mono log-id" v-if="entry.id" @click="copyId(entry.id)" title="Click to copy ID">
             {{ entry.id.slice(0,8) }}…
           </span>
@@ -83,19 +89,18 @@
         </div>
       </div>
 
-      <!-- Summary bar -->
-      <div class="summary-bar" v-if="log.length > 1">
+      <div class="summary-bar" v-if="sendLog.length > 1">
         <div class="stat">
           <span class="stat-label">Total</span>
-          <span class="stat-val">{{ log.length }}</span>
+          <span class="stat-val">{{ sendLog.length }}</span>
         </div>
         <div class="stat">
           <span class="stat-label">Success</span>
-          <span class="stat-val ok">{{ log.filter(e=>e.ok).length }}</span>
+          <span class="stat-val ok">{{ sendLog.filter(e=>e.ok).length }}</span>
         </div>
         <div class="stat">
           <span class="stat-label">Failed</span>
-          <span class="stat-val err">{{ log.filter(e=>!e.ok).length }}</span>
+          <span class="stat-val err">{{ sendLog.filter(e=>!e.ok).length }}</span>
         </div>
         <div class="stat">
           <span class="stat-label">Avg Latency</span>
@@ -107,41 +112,45 @@
         </div>
       </div>
     </div>
+
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, computed } from 'vue'
+import { ref, reactive, computed, inject } from 'vue'
 import axios from 'axios'
 
+const dbBackend = inject('dbBackend', ref('postgres'))
+
 const strategies = [
-  { id: '',               icon: '🗄️',  label: 'DB Only',       sub: 'PostgreSQL' },
-  { id: 'private_chain',  icon: '⛓️',  label: 'Private Chain', sub: 'Exonum' },
-  { id: 'public_chain',   icon: '🌐',  label: 'Public Chain',  sub: 'Ethereum' },
-  { id: 'hybrid_private', icon: '🔀',  label: 'Hybrid Private', sub: 'DB + Exonum' },
-  { id: 'hybrid_public',  icon: '🔀',  label: 'Hybrid Public',  sub: 'DB + Ethereum' },
+  { id: 'db_only',               icon: '🗄️',  label: 'DB Only',             sub: 'offchain table' },
+  { id: 'private_chain',         icon: '⛓️',  label: 'Private Chain',       sub: 'Exonum only' },
+  { id: 'public_chain',          icon: '🌐',  label: 'Public Chain',        sub: 'Ethereum only' },
+  { id: 'hybrid_private',        icon: '🔀',  label: 'Hybrid Private',      sub: 'DB + Exonum hash' },
+  { id: 'hybrid_public',         icon: '🔀',  label: 'Hybrid Public',       sub: 'DB + ETH hash' },
+  { id: 'hybrid_private_batch',  icon: '📦',  label: 'Hybrid Priv. Batch',  sub: 'Merkle on Exonum' },
+  { id: 'hybrid_public_batch',   icon: '📦',  label: 'Hybrid Pub. Batch',   sub: 'Merkle on ETH' },
 ]
 
 const form = reactive({
   level: 'INFO',
   source: 'debug-ui',
   message: 'Test log from hybrid-logging-frontend',
-  storageMode: '',
+  storageMode: 'db_only',
   writeMode: 'sync',
 })
-
-const metaRaw  = ref('')
+const metaRaw   = ref('')
 const metaError = ref('')
-const sending  = ref(false)
-const log      = ref([])
+const sending   = ref(false)
+const sendLog   = ref([])
 
 const avgLatency = computed(() => {
-  const ok = log.value.filter(e => e.ok)
+  const ok = sendLog.value.filter(e => e.ok)
   if (!ok.length) return 0
   return Math.round(ok.reduce((a, b) => a + b.latency, 0) / ok.length)
 })
-const minLatency = computed(() => Math.min(...log.value.filter(e=>e.ok).map(e=>e.latency)))
-const maxLatency = computed(() => Math.max(...log.value.filter(e=>e.ok).map(e=>e.latency)))
+const minLatency = computed(() => Math.min(...sendLog.value.filter(e=>e.ok).map(e=>e.latency)))
+const maxLatency = computed(() => Math.max(...sendLog.value.filter(e=>e.ok).map(e=>e.latency)))
 
 function parseMetadata() {
   metaError.value = ''
@@ -150,58 +159,44 @@ function parseMetadata() {
   catch { metaError.value = 'Invalid JSON'; return null }
 }
 
-async function fire() {
+async function sendOne() {
   const meta = parseMetadata()
-  if (meta === null) return null
-
+  if (meta === null) return
+  sending.value = true
   const body = {
-    level:    form.level,
-    source:   form.source,
-    message:  form.message,
-    metadata: meta,
-    writeMode: form.writeMode,
+    level:       form.level,
+    source:      form.source,
+    message:     form.message,
+    metadata:    meta,
+    writeMode:   form.writeMode,
+    storageMode: form.storageMode,
+    db:          dbBackend.value,
   }
-  if (form.storageMode) body.storageMode = form.storageMode
-
   const t0 = performance.now()
   try {
     const res = await axios.post('/log', body)
     const latency = Math.round(performance.now() - t0)
-    const r = res.data
-    log.value.push({
+    sendLog.value.push({
       ok: true,
       time: new Date().toLocaleTimeString(),
       latency,
-      strategy: form.storageMode || 'db_only',
-      id: r.log?.id,
-      txId: r.log?.blockchainTxId,
+      strategy: form.storageMode,
+      db: dbBackend.value,
+      id: res.data.log?.id,
+      txId: res.data.log?.blockchainTxId,
       error: null,
     })
-    return r
   } catch (e) {
-    const latency = Math.round(performance.now() - t0)
-    log.value.push({
+    sendLog.value.push({
       ok: false,
       time: new Date().toLocaleTimeString(),
-      latency,
-      strategy: form.storageMode || 'db_only',
-      id: null,
-      txId: null,
+      latency: Math.round(performance.now() - t0),
+      strategy: form.storageMode,
+      db: dbBackend.value,
+      id: null, txId: null,
       error: e.response?.data?.error ?? e.message,
     })
-    return null
   }
-}
-
-async function sendOne() {
-  sending.value = true
-  await fire()
-  sending.value = false
-}
-
-async function sendBurst() {
-  sending.value = true
-  await Promise.allSettled(Array.from({ length: 10 }, () => fire()))
   sending.value = false
 }
 
@@ -212,7 +207,7 @@ function copyId(id) {
 
 <style scoped>
 .strategy-grid {
-  display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px;
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px;
 }
 .strategy-btn {
   display: flex; flex-direction: column; align-items: center; gap: 4px;
@@ -227,6 +222,7 @@ function copyId(id) {
 
 .row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
 
+/* Live log */
 .log-scroll { max-height: 360px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
 .log-row {
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
@@ -240,6 +236,9 @@ function copyId(id) {
   font-size: 11px; padding: 2px 7px; background: #21262d;
   border-radius: 10px; color: #8b949e;
 }
+.db-pill { font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 10px; }
+.db-pg    { background: #1a2d4a; color: #58a6ff; }
+.db-mongo { background: #1a3a1a; color: #3fb950; }
 .err-text { font-size: 12px; color: #f85149; }
 
 .summary-bar {
